@@ -140,7 +140,7 @@ namespace Veeam_Cred_Extractor
                             var psi = new ProcessStartInfo
                             {
                                 FileName = sqlcmdPath,
-                                Arguments = $"-S {resolvedServer} -E -d {veeamOneDb} -Q \"{query}\" -h -1 -s\":\" -y 0 -Y 0",
+                                Arguments = $"-S {resolvedServer} -E -d {veeamOneDb} -Q \"{query}\" -h -1 -s\":\" -W",
                                 RedirectStandardOutput = true,
                                 RedirectStandardError = true,
                                 UseShellExecute = false,
@@ -167,7 +167,7 @@ namespace Veeam_Cred_Extractor
                             var psi = new ProcessStartInfo
                             {
                                 FileName = sqlcmdPath,
-                                Arguments = $"-S {resolvedServer} -E -d {veeamOneDb} -Q \"{query}\" -h -1 -s\":\" -y 0 -Y 0",
+                                Arguments = $"-S {resolvedServer} -E -d {veeamOneDb} -Q \"{query}\" -h -1 -s\":\" -W",
                                 RedirectStandardOutput = true,
                                 RedirectStandardError = true,
                                 UseShellExecute = false,
@@ -211,7 +211,7 @@ namespace Veeam_Cred_Extractor
                             var psi = new ProcessStartInfo
                             {
                                 FileName = sqlcmdPath,
-                                Arguments = $"-S {resolvedServer} -E -d {veeamDbName} -Q \"{query}\" -h -1 -s\":\" -y 0 -Y 0",
+                                Arguments = $"-S {resolvedServer} -E -d {veeamDbName} -Q \"{query}\" -h -1 -s\":\" -W",
                                 RedirectStandardOutput = true,
                                 RedirectStandardError = true,
                                 UseShellExecute = false,
@@ -238,7 +238,7 @@ namespace Veeam_Cred_Extractor
                             var psi = new ProcessStartInfo
                             {
                                 FileName = sqlcmdPath,
-                                Arguments = $"-S {resolvedServer} -E -d {veeamDbName} -Q \"{query}\" -h -1 -s\":\" -y 0 -Y 0",
+                                Arguments = $"-S {resolvedServer} -E -d {veeamDbName} -Q \"{query}\" -h -1 -s\":\" -W",
                                 RedirectStandardOutput = true,
                                 RedirectStandardError = true,
                                 UseShellExecute = false,
@@ -462,7 +462,7 @@ namespace Veeam_Cred_Extractor
                                 var psi = new ProcessStartInfo
                                 {
                                     FileName = sqlcmdPath,
-                                    Arguments = $"-S {mapServer} -E -d {mapDb} -Q \"{query}\" -h -1 -s\":\" -y 0 -Y 0",
+                                    Arguments = $"-S {mapServer} -E -d {mapDb} -Q \"{query}\" -h -1 -s\":\" -W",
                                     RedirectStandardOutput = true,
                                     RedirectStandardError = true,
                                     UseShellExecute = false,
@@ -542,7 +542,7 @@ namespace Veeam_Cred_Extractor
                         var psi = new ProcessStartInfo
                         {
                             FileName = sqlcmdPath,
-                            Arguments = $"-S {resolvedServer} -E -d {resolvedDb} -Q \"{query}\" -h -1 -s\":\" -y 0 -Y 0",
+                            Arguments = $"-S {resolvedServer} -E -d {resolvedDb} -Q \"{query}\" -h -1 -s\":\" -W",
                             RedirectStandardOutput = true,
                             RedirectStandardError = true,
                             UseShellExecute = false,
@@ -630,7 +630,7 @@ namespace Veeam_Cred_Extractor
                                 var psi = new ProcessStartInfo
                                 {
                                     FileName = sqlcmdPath,
-                                    Arguments = $"-S {autoServer} -E -d {autoDb} -Q \"{query}\" -h -1 -s\":\" -y 0 -Y 0",
+                                    Arguments = $"-S {autoServer} -E -d {autoDb} -Q \"{query}\" -h -1 -s\":\" -W",
                                     RedirectStandardOutput = true,
                                     RedirectStandardError = true,
                                     UseShellExecute = false,
@@ -715,7 +715,7 @@ namespace Veeam_Cred_Extractor
                         var psi = new ProcessStartInfo
                         {
                             FileName = sqlcmdPath,
-                            Arguments = $"-S {resolvedServer} -E -d {resolvedDb} -Q \"{query}\" -h -1 -s\":\" -y 0 -Y 0",
+                            Arguments = $"-S {resolvedServer} -E -d {resolvedDb} -Q \"{query}\" -h -1 -s\":\" -W",
                             RedirectStandardOutput = true,
                             RedirectStandardError = true,
                             UseShellExecute = false,
